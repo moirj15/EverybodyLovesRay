@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <SDL2/SDL.h>
 
+
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -117,7 +118,7 @@ struct Camera {
 };
 
 bool intersect_sphere(Sphere sphere, Ray ray, glm::vec4 *intersect, 
-        glm::vec4 *normal) {
+        glm::vec4 *normal, f32 *distance) {
     f32 B = 2.0f * glm::compAdd(ray.direction * (ray.origin - sphere.center));
     f32 C = glm::compAdd(glm::pow(ray.origin - sphere.center, glm::vec4(2.0f))) - powf(sphere.radius, 2.0f);
 
@@ -130,6 +131,7 @@ bool intersect_sphere(Sphere sphere, Ray ray, glm::vec4 *intersect,
         f32 w = (-B + val_under_root) / 2.0f;
         *intersect = ray.origin + (ray.direction * w);
         *normal = *intersect - sphere.center;
+        *distance = w;
         return true;
     }
     f32 wAdd = (-B + val_under_root) / 2.0f;
@@ -137,12 +139,14 @@ bool intersect_sphere(Sphere sphere, Ray ray, glm::vec4 *intersect,
     if (wAdd <= 0.0f) {
         *intersect = ray.origin + (ray.direction * wSub);
         *normal = *intersect - sphere.center;
+        *distance = wSub;
         return true;
     }
 
     if (wSub <= 0.0f) {
         *intersect = ray.origin + (ray.direction * wAdd);
         *normal = *intersect - sphere.center;
+        *distance = wAdd;
 
         return true;
     }
@@ -150,15 +154,43 @@ bool intersect_sphere(Sphere sphere, Ray ray, glm::vec4 *intersect,
     if (wAdd < wSub) {
         *intersect = ray.origin + (ray.direction * wSub);
         *normal = *intersect - sphere.center;
+        *distance = wSub;
         return true;
     }
 
     // wSub > wAdd
     *intersect = ray.origin + (ray.direction * wAdd);
     *normal = *intersect - sphere.center;
+    *distance = wAdd;
 
     return true;
 
+}
+
+bool intersect_triangle(Triangle triangle, Ray ray, glm::vec4 *intersect,
+        glm::vec4 *normal, f32 *distance) {
+    glm::vec3 e1(triangle.v1 - triangle.v2);
+    glm::vec3 e2(triangle.v2 - triangle.v0);
+    glm::vec3 T(ray.origin - triangle.v0);
+    glm::vec3 P(glm::cross(glm::vec3(ray.direction), glm::vec3(triangle.v2)));
+    glm::vec3 Q(glm::cross(glm::vec3(T), glm::vec3(triangle.v1)));
+
+    if (glm::dot(P, e1) == 0.0f) {
+        return false;
+    }
+
+    glm::vec3 tuv = (1.0f / (glm::dot(P, e1))) * glm::vec3(glm::dot(Q, e2),
+            glm::dot(P, T), glm::dot(Q, glm::vec3(ray.direction)));
+
+    if (tuv.x < 0.0f || (tuv.y < 0.0f) || (tuv.z < 0.0f) || 
+            (tuv.y + tuv.z > 1.0f)) {
+        return false;
+    }
+
+    *intersect = ray.origin + tuv.x * ray.direction;
+    *normal = glm::vec4(glm::cross(e1, e2), 0.0f);
+    *distance = tuv.x;
+    return true;
 }
 
 void cast_rays(u32 *screen_buffer, Camera *camera, Sphere sphere) {
@@ -177,7 +209,8 @@ void cast_rays(u32 *screen_buffer, Camera *camera, Sphere sphere) {
             Ray ray (origin, glm::normalize(direction));
             glm::vec4 intersect(0.0f);
             glm::vec4 normal(0.0f);
-            if (intersect_sphere(sphere, ray, &intersect, &normal)) {
+            f32 distance = 0.0f;
+            if (intersect_sphere(sphere, ray, &intersect, &normal, &distance)) {
                 screen_buffer[(y * camera->width) + x] = 0x00ff0000;
             }
             else {
