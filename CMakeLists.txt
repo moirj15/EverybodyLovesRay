@@ -5,8 +5,8 @@ add_executable(
 	math.h
 	common.h
 )
-set(CMAKE_C_FLAGS "-std=c++17 -Wall -Wextra -pedantic")
-set(CMAKE_EXE_LINKER_FLAGS "-lSDL2 -lm")
+set(CMAKE_CXX_FLAGS "-std=c++17 -Wall -Wextra -pedantic -Wno-missing-braces")
+set(CMAKE_EXE_LINKER_FLAGS "-lSDL2")
 target_link_libraries(
 	ray
 	SDL2
