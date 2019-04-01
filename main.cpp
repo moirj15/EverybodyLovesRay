@@ -11,7 +11,7 @@
 #include "common.h"
 #include "math.h"
 
-class Window {
+struct Window {
     SDL_Window *sdl_window;
     SDL_Texture *sdl_texture;
     SDL_Renderer *sdl_renderer;
@@ -19,7 +19,6 @@ class Window {
     s32 width;
     s32 height;
 
-public:
     Window() = default;
 
     Window(s32 w, s32 h) : sdl_window(NULL), sdl_texture(NULL), 
@@ -225,8 +224,9 @@ void cast_rays(u32 *screen_buffer, Camera *camera, Sphere sphere) {
 int main(int argc, char **argv) {
 	(void)argc;
 	(void)argv;
-    const s32 width = 1080;
-    const s32 height = 720;
+
+    constexpr s32 width = 1080;
+    constexpr s32 height = 720;
     u32 screen_buffer[width * height] = {};
     Window window(width, height);
 
