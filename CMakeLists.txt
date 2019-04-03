@@ -11,6 +11,7 @@ if (WIN32)
 	set(CMAKE_CXX_FLAGS "/std:c++17 /MP /GS /TP /W3 -D_CRT_SECURE_NO_WARNINGS")
 	include_directories(
 		D:/libraries/SDL2-2.0.9/include
+		D:/libraries/glm
 	)
 	target_link_libraries(
 		ray
