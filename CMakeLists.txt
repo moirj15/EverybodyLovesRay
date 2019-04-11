@@ -3,7 +3,6 @@ project(ray)
 add_executable(
 	ray
 	main.cpp
-	math.h
 	common.h
 )
 

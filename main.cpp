@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <SDL2/SDL.h>
+#include <vector>
 
 
 #define GLM_ENABLE_EXPERIMENTAL
@@ -9,7 +10,6 @@
 #include <glm/gtx/component_wise.hpp>
 
 #include "common.h"
-#include "math.h"
 
 struct Window {
     SDL_Window *sdl_window;
@@ -21,6 +21,12 @@ struct Window {
 
     Window() = default;
 
+    /**
+     * Constructor
+     *
+     * @param w: The width.
+     * @param h: The height.
+     */
     Window(s32 w, s32 h) : sdl_window(NULL), sdl_texture(NULL), 
         sdl_renderer(NULL), width(w), height(h) {
 
@@ -55,12 +61,20 @@ struct Window {
 	    }
     }
 
+    /**
+     * Destructor
+     */
     ~Window() {
         SDL_DestroyRenderer(sdl_renderer);
         SDL_DestroyTexture(sdl_texture);
         SDL_DestroyWindow(sdl_window);
     }
 
+    /**
+     * Update the window by drawing the given screen buffer to it
+     *
+     * @param screen_buffer: The screen buffer that will be drawn.
+     */
     void update(u32 *screen_buffer) {
         SDL_UpdateTexture(sdl_texture, NULL, screen_buffer, width * sizeof(s32));
         SDL_RenderClear(sdl_renderer);
@@ -75,6 +89,12 @@ struct Ray {
 
     Ray() = default;
     Ray(const glm::vec4 &o, const glm::vec4 &d) : origin(o), direction(d) {}
+};
+
+struct Material {
+    f32 ambiant;
+    f32 specular;
+    f32 diffuse;
 };
 
 struct Sphere {
@@ -107,6 +127,9 @@ struct Camera {
 
     f32 lens_distance;
 
+    const f32 film_height = 9.0f;
+    const f32 film_width = 16.0f;
+
     Camera() = default;
 
     Camera(const glm::vec3 &p, const glm::vec3 &l, const glm::vec3 &u, 
@@ -116,8 +139,8 @@ struct Camera {
 
 };
 
-bool intersect_sphere(Sphere sphere, Ray ray, glm::vec4 *intersect, glm::vec4 *normal, 
-        f32 *distance) {
+bool intersect_test(const Sphere &sphere, const Ray &ray, 
+        glm::vec4 *intersect, glm::vec4 *normal, f32 *distance) {
     f32 B = 2.0f * glm::compAdd(ray.direction * (ray.origin - sphere.center));
     f32 C = glm::compAdd(glm::pow(ray.origin - sphere.center, glm::vec4(2.0f))) 
         - powf(sphere.radius, 2.0f);
@@ -167,7 +190,7 @@ bool intersect_sphere(Sphere sphere, Ray ray, glm::vec4 *intersect, glm::vec4 *n
 
 }
 
-bool intersect_triangle(Triangle triangle, Ray ray, glm::vec4 *intersect,
+bool intersect_test(Triangle triangle, Ray ray, glm::vec4 *intersect,
         glm::vec4 *normal, f32 *distance) {
     glm::vec3 e1 = glm::vec3(triangle.v1 - triangle.v2);
     glm::vec3 e2 = glm::vec3(triangle.v2 - triangle.v0);
@@ -193,10 +216,66 @@ bool intersect_triangle(Triangle triangle, Ray ray, glm::vec4 *intersect,
     return true;
 }
 
+
+template <typename T>
+bool intersect_objects(const std::vector<T> &objects, const Ray &ray, 
+        glm::vec4 *intersect, glm::vec4 *normal, f32 *distance) {
+    f32 nearest = INFINITY;
+    f32 curr_distance = INFINITY;
+    for (const auto &object : objects) {
+        if (intersect_test(object, ray, intersect, normal, &curr_distance)) {
+            if (curr_distance < nearest) {
+                nearest = curr_distance;
+            }
+        }
+    }
+    if (curr_distance == INFINITY) {
+        return false;
+    }
+    *distance = nearest;
+    return true;
+}
+
+void cast_rays(u32 *screen_buffer, Camera *camera, 
+        const std::vector<Sphere> &spheres, 
+        const std::vector<Triangle> &triangles) {
+    glm::mat4 inv_cam = inverse(camera->camera_matrix);
+
+    for (s32 y = 0; y < camera->height; y++) {
+        f32 y_origin = (camera->film_height / 2.0f) - 
+            ((f32)y * (camera->film_height / (f32)camera->height));
+        for (s32 x = 0; x < camera->width; x++) {
+            f32 x_origin = (-camera->film_width / 2.0f) + 
+                ((f32)x * (camera->film_width / (f32)camera->width));
+
+            auto direction = inv_cam * glm::vec4(x_origin, y_origin, 
+                                             -camera->lens_distance, 0.0f);
+            auto origin = inv_cam * glm::vec4(camera->position, 1.0f);
+            Ray ray(origin, normalize(direction));
+            glm::vec4 sphere_intersect(0.0f);
+            glm::vec4 sphere_normal(0.0f);
+            glm::vec4 tri_intersect(0.0f);
+            glm::vec4 tri_normal(0.0f);
+            f32 sphere_distance = 0.0f;
+            f32 tri_distance = 0.0f;
+            bool hit_sphere = intersect_objects(spheres, ray, &sphere_intersect, 
+                    &sphere_normal, &sphere_distance);
+            bool hit_triangle = intersect_objects(triangles, ray, &tri_intersect, 
+                    &tri_normal, &tri_distance);
+            if (hit_triangle) {
+                screen_buffer[(y * camera->width) + x] = 0x00ff0000;
+            }
+            else {
+                screen_buffer[(y * camera->width) + x] = 0x00000000;
+            }
+        }
+    }
+
+}
+
+/*
 void cast_rays(u32 *screen_buffer, Camera *camera, Sphere sphere) {
     glm::mat4 inv_cam = inverse(camera->camera_matrix);
-    constexpr f32 film_height = 9.0f;
-    constexpr f32 film_width = 16.0f;
     for (s32 y = 0; y < camera->height; y++) {
         f32 y_origin = (film_height / 2.0f) - 
             ((f32)y * (film_height / (f32)camera->height));
@@ -219,7 +298,7 @@ void cast_rays(u32 *screen_buffer, Camera *camera, Sphere sphere) {
         }
     }
 }
-
+*/
 
 int main(int argc, char **argv) {
 	(void)argc;
@@ -234,7 +313,10 @@ int main(int argc, char **argv) {
     Camera camera(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f),
                 glm::vec3(0.0f, 1.0f, 0.0f), width, height, 1.0f);
 
-    cast_rays(screen_buffer, &camera, sphere);
+    Triangle tri(glm::vec4(-1.0f, 0.0f, -10.0f, 1.0f), 
+            glm::vec4(1.0f, 0.0f, -10.0f, 1.0f), 
+            glm::vec4(0.0f, 1.0f, -10.0f, 1.0f));
+    cast_rays(screen_buffer, &camera, {sphere}, {tri});
     window.update(screen_buffer);
 
     bool running = true;
@@ -247,6 +329,6 @@ int main(int argc, char **argv) {
         }
     }
 	
-    delete(screen_buffer);
+    delete[](screen_buffer);
 	return EXIT_SUCCESS;
 }
