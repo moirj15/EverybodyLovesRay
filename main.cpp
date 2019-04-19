@@ -56,8 +56,8 @@ struct Window {
 		                            SDL_TEXTUREACCESS_STATIC, w, h);
 
 	    if (!sdl_texture) {
-		fprintf(stderr, "ERR: %s\n", SDL_GetError());
-		exit(EXIT_FAILURE);
+            fprintf(stderr, "ERR: %s\n", SDL_GetError());
+            exit(EXIT_FAILURE);
 	    }
     }
 
@@ -192,11 +192,11 @@ bool intersect_test(const Sphere &sphere, const Ray &ray,
 
 bool intersect_test(Triangle triangle, Ray ray, glm::vec4 *intersect,
         glm::vec4 *normal, f32 *distance) {
-    glm::vec3 e1 = glm::vec3(triangle.v1 - triangle.v2);
+    glm::vec3 e1 = glm::vec3(triangle.v1 - triangle.v0);
     glm::vec3 e2 = glm::vec3(triangle.v2 - triangle.v0);
     glm::vec3 T = glm::vec3(ray.origin - triangle.v0);
-    glm::vec3 P(glm::cross(glm::vec3(ray.direction), glm::vec3(triangle.v2)));
-    glm::vec3 Q(glm::cross(T, glm::vec3(triangle.v1)));
+    glm::vec3 P(glm::cross(glm::vec3(ray.direction), e2));
+    glm::vec3 Q(glm::cross(T, e1));
 
     if (dot(P, e1) == 0.0f) {
         return false;
@@ -205,6 +205,7 @@ bool intersect_test(Triangle triangle, Ray ray, glm::vec4 *intersect,
     glm::vec3 tuv = (1.0f / (dot(P, e1))) * glm::vec3(dot(Q, e2),
             dot(P, T), dot(Q, glm::vec3(ray.direction)));
 
+    
     if (tuv.x < 0.0f || (tuv.y < 0.0f) || (tuv.z < 0.0f) || 
             (tuv.y + tuv.z > 1.0f)) {
         return false;
@@ -251,18 +252,24 @@ void cast_rays(u32 *screen_buffer, Camera *camera,
             auto direction = inv_cam * glm::vec4(x_origin, y_origin, 
                                              -camera->lens_distance, 0.0f);
             auto origin = inv_cam * glm::vec4(camera->position, 1.0f);
-            Ray ray(origin, normalize(direction));
+            Ray ray(glm::normalize(origin), glm::normalize(direction));
+
             glm::vec4 sphere_intersect(0.0f);
             glm::vec4 sphere_normal(0.0f);
+
             glm::vec4 tri_intersect(0.0f);
             glm::vec4 tri_normal(0.0f);
+
             f32 sphere_distance = 0.0f;
             f32 tri_distance = 0.0f;
+
             bool hit_sphere = intersect_objects(spheres, ray, &sphere_intersect, 
                     &sphere_normal, &sphere_distance);
+
             bool hit_triangle = intersect_objects(triangles, ray, &tri_intersect, 
                     &tri_normal, &tri_distance);
-            if (hit_triangle) {
+
+            if (hit_sphere) {
                 screen_buffer[(y * camera->width) + x] = 0x00ff0000;
             }
             else {
@@ -272,33 +279,6 @@ void cast_rays(u32 *screen_buffer, Camera *camera,
     }
 
 }
-
-/*
-void cast_rays(u32 *screen_buffer, Camera *camera, Sphere sphere) {
-    glm::mat4 inv_cam = inverse(camera->camera_matrix);
-    for (s32 y = 0; y < camera->height; y++) {
-        f32 y_origin = (film_height / 2.0f) - 
-            ((f32)y * (film_height / (f32)camera->height));
-        for (s32 x = 0; x < camera->width; x++) {
-            f32 x_origin = (-film_width / 2.0f) + 
-                ((f32)x * (film_width / (f32)camera->width));
-            auto direction = inv_cam * glm::vec4(x_origin, y_origin, 
-                                             -camera->lens_distance, 0.0f);
-            auto origin = inv_cam * glm::vec4(camera->position, 1.0f);
-            Ray ray (origin, normalize(direction));
-            glm::vec4 intersect = glm::vec4(0.0f);
-            glm::vec4 normal = glm::vec4(0.0f);
-            f32 distance = 0.0f;
-            if (intersect_sphere(sphere, ray, &intersect, &normal, &distance)) {
-                screen_buffer[(y * camera->width) + x] = 0x00ff0000;
-            }
-            else {
-                screen_buffer[(y * camera->width) + x] = 0x00000000;
-            }
-        }
-    }
-}
-*/
 
 int main(int argc, char **argv) {
 	(void)argc;
@@ -310,14 +290,16 @@ int main(int argc, char **argv) {
     Window window(width, height);
 
     Sphere sphere(glm::vec4(0.0f, 0.0f, -1.1f, 1.0f), 1.0f);
-    Camera camera(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f),
+    Camera camera(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f),
                 glm::vec3(0.0f, 1.0f, 0.0f), width, height, 1.0f);
 
-    Triangle tri(glm::vec4(-1.0f, 0.0f, -10.0f, 1.0f), 
-            glm::vec4(1.0f, 0.0f, -10.0f, 1.0f), 
-            glm::vec4(0.0f, 1.0f, -10.0f, 1.0f));
+    Triangle tri(glm::vec4(-1.0f, 0.0f, -3.0f, 1.0f), 
+            glm::vec4(1.0f, 0.0f, -3.0f, 1.0f), 
+            glm::vec4(0.0f, 1.0f, -3.0f, 1.0f));
+
     cast_rays(screen_buffer, &camera, {sphere}, {tri});
     window.update(screen_buffer);
+    printf("done\n");
 
     bool running = true;
     while (running) {
