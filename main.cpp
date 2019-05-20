@@ -19,8 +19,6 @@ struct Window {
     s32 width;
     s32 height;
 
-    Window() = default;
-
     /**
      * Constructor
      *
@@ -91,11 +89,6 @@ struct Ray {
     Ray(const glm::vec4 &o, const glm::vec4 &d) : origin(o), direction(d) {}
 };
 
-struct Material {
-    f32 ambiant;
-    f32 specular;
-    f32 diffuse;
-};
 
 struct Sphere {
     glm::vec4 center;
@@ -198,15 +191,15 @@ bool intersect_test(Triangle triangle, Ray ray, glm::vec4 *intersect,
     glm::vec3 P(glm::cross(glm::vec3(ray.direction), e2));
     glm::vec3 Q(glm::cross(T, e1));
 
-    if (dot(P, e1) == 0.0f) {
+    if (glm::dot(P, e1) == 0.0f) {
         return false;
     }
 
-    glm::vec3 tuv = (1.0f / (dot(P, e1))) * glm::vec3(dot(Q, e2),
-            dot(P, T), dot(Q, glm::vec3(ray.direction)));
+    glm::vec3 tuv = (1.0f / (glm::dot(P, e1))) * glm::vec3(glm::dot(Q, e2),
+            glm::dot(P, T), glm::dot(Q, glm::vec3(ray.direction)));
 
     
-    if (tuv.x < 0.0f || (tuv.y < 0.0f) || (tuv.z < 0.0f) || 
+    if ((tuv.x < 0.0f) || (tuv.y < 0.0f) || (tuv.z < 0.0f) || 
             (tuv.y + tuv.z > 1.0f)) {
         return false;
     }
@@ -268,9 +261,20 @@ void cast_rays(u32 *screen_buffer, Camera *camera,
 
             bool hit_triangle = intersect_objects(triangles, ray, &tri_intersect, 
                     &tri_normal, &tri_distance);
-
-            if (hit_sphere) {
+            
+            if (hit_sphere && hit_triangle) {
+                if (sphere_distance < tri_distance) {
+                    screen_buffer[(y * camera->width) + x] = 0x00ff0000;
+                }
+                else {
+                    screen_buffer[(y * camera->width) + x] = 0x00ffffff;
+                }
+            }
+            else if (hit_sphere) {
                 screen_buffer[(y * camera->width) + x] = 0x00ff0000;
+            }
+            else if (hit_triangle) {
+                screen_buffer[(y * camera->width) + x] = 0x00ffffff;
             }
             else {
                 screen_buffer[(y * camera->width) + x] = 0x00000000;
@@ -289,11 +293,12 @@ int main(int argc, char **argv) {
     u32 *screen_buffer = new u32[width * height]();
     Window window(width, height);
 
-    Sphere sphere(glm::vec4(0.0f, 0.0f, -1.1f, 1.0f), 1.0f);
+    Sphere sphere(glm::vec4(0.0f, 0.0f, -2.1f, 1.0f), 1.0f);
     Camera camera(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f),
                 glm::vec3(0.0f, 1.0f, 0.0f), width, height, 1.0f);
 
-    Triangle tri(glm::vec4(-1.0f, 0.0f, -3.0f, 1.0f), 
+    Triangle tri(
+            glm::vec4(-1.0f, 0.0f, -3.0f, 1.0f), 
             glm::vec4(1.0f, 0.0f, -3.0f, 1.0f), 
             glm::vec4(0.0f, 1.0f, -3.0f, 1.0f));
 
