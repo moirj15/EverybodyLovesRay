@@ -150,37 +150,35 @@ bool intersect_test(const Sphere &sphere, const Ray &ray,
         *distance = w;
         return true;
     }
-    f32 wAdd = (-B + val_under_root) / 2.0f;
-    f32 wSub = (-B - val_under_root) / 2.0f;
+    f32 wAdd = (-B + sqrt(val_under_root)) / 2.0f;
+    f32 wSub = (-B - sqrt(val_under_root)) / 2.0f;
     if (wAdd <= 0.0f) {
         *intersect = ray.origin + (ray.direction * wSub);
         *normal = *intersect - sphere.center;
         *distance = wSub;
         return true;
     }
-
-    if (wSub <= 0.0f) {
+    else if (wSub <= 0.0f) {
         *intersect = ray.origin + (ray.direction * wAdd);
         *normal = *intersect - sphere.center;
         *distance = wAdd;
 
         return true;
     }
-
-    if (wAdd < wSub) {
+    else if (wAdd < wSub) {
+        *intersect = ray.origin + (ray.direction * wAdd);
+        *normal = *intersect - sphere.center;
+        *distance = wAdd;
+        return true;
+    }
+    // wSub < wAdd
+    else {
         *intersect = ray.origin + (ray.direction * wSub);
         *normal = *intersect - sphere.center;
         *distance = wSub;
+
         return true;
     }
-
-    // wSub > wAdd
-    *intersect = ray.origin + (ray.direction * wAdd);
-    *normal = *intersect - sphere.center;
-    *distance = wAdd;
-
-    return true;
-
 }
 
 bool intersect_test(Triangle triangle, Ray ray, glm::vec4 *intersect,
@@ -298,9 +296,9 @@ int main(int argc, char **argv) {
                 glm::vec3(0.0f, 1.0f, 0.0f), width, height, 1.0f);
 
     Triangle tri(
-            glm::vec4(-1.0f, 0.0f, -3.0f, 1.0f), 
-            glm::vec4(1.0f, 0.0f, -3.0f, 1.0f), 
-            glm::vec4(0.0f, 1.0f, -3.0f, 1.0f));
+            glm::vec4(-1.0f, 0.0f, -1.5f, 1.0f),
+            glm::vec4(1.0f, 0.0f, -1.5f, 1.0f),
+            glm::vec4(0.0f, 1.0f, -1.5f, 1.0f));
 
     cast_rays(screen_buffer, &camera, {sphere}, {tri});
     window.update(screen_buffer);
