@@ -25,8 +25,8 @@ struct Window {
      * @param w: The width.
      * @param h: The height.
      */
-    Window(s32 w, s32 h) : sdl_window(NULL), sdl_texture(NULL), 
-        sdl_renderer(NULL), width(w), height(h) {
+    Window(s32 w, s32 h) : sdl_window(nullptr), sdl_texture(nullptr),
+        sdl_renderer(nullptr), width(w), height(h) {
 
         if (SDL_Init(SDL_INIT_VIDEO) < 0) {
             fprintf(stderr, "ERR: %s\n", SDL_GetError());
@@ -74,9 +74,9 @@ struct Window {
      * @param screen_buffer: The screen buffer that will be drawn.
      */
     void update(u32 *screen_buffer) {
-        SDL_UpdateTexture(sdl_texture, NULL, screen_buffer, width * sizeof(s32));
+        SDL_UpdateTexture(sdl_texture, nullptr, screen_buffer, width * (s32)sizeof(s32));
         SDL_RenderClear(sdl_renderer);
-        SDL_RenderCopy(sdl_renderer, sdl_texture, NULL, NULL);
+        SDL_RenderCopy(sdl_renderer, sdl_texture, nullptr, nullptr);
         SDL_RenderPresent(sdl_renderer);
     }
 };
@@ -89,19 +89,37 @@ struct Ray {
     Ray(const glm::vec4 &o, const glm::vec4 &d) : origin(o), direction(d) {}
 };
 
+struct Material {
+    const f32 ambientCoefficient;
+    const f32 diffuseCoefficient;
+    const f32 specularCoefficient;
+    const f32 specularExponent;
+    const glm::vec3 diffuseMaterial;
+    const glm::vec3 specularMaterial;
+
+    Material() = default;
+    Material(f32 ac, f32 dc, f32 sc, f32 se, glm::vec3 dm, glm::vec3 sm) :
+        ambientCoefficient(ac), diffuseCoefficient(dc), specularCoefficient(sc),
+        specularExponent(se), diffuseMaterial(dm), specularMaterial(sm) {}
+};
 
 struct Sphere {
     glm::vec4 center;
     f32 radius;
+    // TODO: make this a handle
+//    Material material;
 
     Sphere() = default;
-    Sphere(const glm::vec4 &c, f32 r) : center(c), radius(r) {}
+    Sphere(const glm::vec4 &c, f32 r) :
+        center(c), radius(r){}
 };
 
 struct Triangle {
     glm::vec4 v0;
     glm::vec4 v1;
     glm::vec4 v2;
+    // TODO: make this a handle
+//    Material material;
 
     Triangle() = default;
     Triangle(const glm::vec4 &p0, const glm::vec4 &p1, const glm::vec4 &p2) :
@@ -132,6 +150,36 @@ struct Camera {
 
 };
 
+struct Light {
+    glm::vec3 position;
+    glm::vec3 color;
+    glm::vec3 ambientColor;
+
+    Light(const glm::vec3 &p, const glm::vec3 &c, const glm::vec3 &a) :
+        position(p), color(c), ambientColor(a) {}
+};
+
+
+struct Scene {
+    std::vector<Sphere> spheres;
+    std::vector<Triangle> triangles;
+    std::vector<Light> lights;
+};
+
+inline u32 vec3ToU32(const glm::vec3 &vec) {
+    u32 tmp =  ((u32)(vec.r * 255) << 16) | ((u32)(vec.g * 255) << 8) | ((u32)(vec.b * 255));
+    return tmp;
+}
+
+/**
+ * Performs an intersection test between a sphere and a ray.
+ * @param sphere - The sphere we're testing.
+ * @param ray - The ray we're testing.
+ * @param intersect - The intersection point if it exists.
+ * @param normal - The normal at the intersection point if it exists.
+ * @param distance - The length of the ray.
+ * @return - True if an intersection was found, false otherwise.
+ */
 bool intersect_test(const Sphere &sphere, const Ray &ray, 
         glm::vec4 *intersect, glm::vec4 *normal, f32 *distance) {
     f32 B = 2.0f * glm::compAdd(ray.direction * (ray.origin - sphere.center));
@@ -181,6 +229,15 @@ bool intersect_test(const Sphere &sphere, const Ray &ray,
     }
 }
 
+/**
+ * Performs an intersection test between a triangle and a ray.
+ * @param triangle - The triangle we're testing.
+ * @param ray - The ray we're testing.
+ * @param intersect - The intersection point if it exists.
+ * @param normal - The normal at the intersection point if it exists.
+ * @param distance - The length of the ray.
+ * @return - True if an intersection was found, false otherwise.
+ */
 bool intersect_test(Triangle triangle, Ray ray, glm::vec4 *intersect,
         glm::vec4 *normal, f32 *distance) {
     glm::vec3 e1 = glm::vec3(triangle.v1 - triangle.v0);
@@ -209,8 +266,18 @@ bool intersect_test(Triangle triangle, Ray ray, glm::vec4 *intersect,
 }
 
 
+/**
+ * Perform intersection tests on a vector objects (Spheres or Triangles) and
+ * finds the intersection with the shortest ray length.
+ * @param objects - The objects we'll be testing.
+ * @param ray - The ray we're testing.
+ * @param intersect - The intersection point if it exists.
+ * @param normal - The normal, if the intersection occurs.
+ * @param distance - The length of the ray.
+ * @return - True if an intersection occured, false otherwise.
+ */
 template <typename T>
-bool intersect_objects(const std::vector<T> &objects, const Ray &ray, 
+bool intersectObjects(const std::vector<T> &objects, const Ray &ray,
         glm::vec4 *intersect, glm::vec4 *normal, f32 *distance) {
     f32 nearest = INFINITY;
     f32 curr_distance = INFINITY;
@@ -228,10 +295,51 @@ bool intersect_objects(const std::vector<T> &objects, const Ray &ray,
     return true;
 }
 
-void cast_rays(u32 *screen_buffer, Camera *camera, 
-        const std::vector<Sphere> &spheres, 
-        const std::vector<Triangle> &triangles) {
+inline glm::vec3 calculatePhongLighting(const Light &light, const Material &material,
+                                        const glm::vec4 &normal, const glm::vec4 &surfToLight,
+                                        const glm::vec4 &reflectionVec, const glm::vec4 &viewVec) {
+    glm::vec3 diffuse = light.color * material.diffuseCoefficient * material.diffuseMaterial *
+                fmaxf(0.0, glm::dot(normal, surfToLight));
+    glm::vec3 specular  = light.color * material.specularCoefficient *
+            material.specularMaterial
+            * powf(fmaxf(glm::dot(reflectionVec, viewVec), 0.0), material.specularExponent);
+    return light.ambientColor + diffuse + specular;
+}
+
+u32 castReflectionRay(Camera *camera, const Scene &scene, const Material &material,
+                      const glm::vec4 &normal, const glm::vec4 &intersection) {
+    glm::vec3 color{};
+    for (const auto &light : scene.lights) {
+        auto surfToLight = glm::normalize(glm::vec4(light.position, 1.0) - intersection);
+        auto viewVec = glm::normalize(glm::vec4(camera->position, 1.0) - intersection);
+        auto reflectionvec = glm::normalize(glm::reflect(-surfToLight, normal));
+        glm::vec4 junkIntersect{}, junkNormal{};
+        f32 distance = 0.0;
+        if (intersectObjects(scene.spheres, Ray(intersection, glm::vec4(light.position, 1.0) - intersection), &junkIntersect,
+                             &junkNormal, &distance) ||
+                intersectObjects(scene.triangles, Ray(intersection + glm::vec4(0.0f, 0.0f, 0.0001f, 1.0f), glm::vec4(light.position, 1.0) - intersection), &junkIntersect,
+                                    &junkNormal, &distance)) {
+            color += light.ambientColor;
+        } else { // not in shadow
+            color += calculatePhongLighting(light, material, normal, surfToLight, reflectionvec,
+                                            viewVec);
+        }
+    }
+    return vec3ToU32(glm::clamp(color, glm::vec3(0.0f), glm::vec3(1.0f)));
+}
+
+
+/**
+ *
+ * @param screen_buffer
+ * @param camera
+ * @param spheres
+ * @param triangles
+ */
+void castRays(u32 *screen_buffer, Camera *camera, const Scene &scene) {
     glm::mat4 inv_cam = inverse(camera->camera_matrix);
+    Material triangleMaterial{1.0, 1.0, 1.0, 1.0, {1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}};
+    Material sphereMaterial{0.5, 0.3, 0.9, 1.0, {0.0, 1.0, 1.0}, {0.0, 1.0, 1.0}};
 
     for (s32 y = 0; y < camera->height; y++) {
         f32 y_origin = (camera->film_height / 2.0f) - 
@@ -254,32 +362,35 @@ void cast_rays(u32 *screen_buffer, Camera *camera,
             f32 sphere_distance = 0.0f;
             f32 tri_distance = 0.0f;
 
-            bool hit_sphere = intersect_objects(spheres, ray, &sphere_intersect, 
+            bool hit_sphere = intersectObjects(scene.spheres, ray, &sphere_intersect,
                     &sphere_normal, &sphere_distance);
 
-            bool hit_triangle = intersect_objects(triangles, ray, &tri_intersect, 
+            bool hit_triangle = intersectObjects(scene.triangles, ray, &tri_intersect,
                     &tri_normal, &tri_distance);
             
             if (hit_sphere && hit_triangle) {
                 if (sphere_distance < tri_distance) {
-                    screen_buffer[(y * camera->width) + x] = 0x00ff0000;
+                    screen_buffer[(y * camera->width) + x] = // TODO: need to get the material from something
+                            castReflectionRay(camera, scene, sphereMaterial, sphere_normal, sphere_intersect);
                 }
                 else {
-                    screen_buffer[(y * camera->width) + x] = 0x00ffffff;
+                    screen_buffer[(y * camera->width) + x] = //0x00ffffff;
+                            castReflectionRay(camera, scene, triangleMaterial, tri_normal, tri_intersect);
                 }
             }
             else if (hit_sphere) {
-                screen_buffer[(y * camera->width) + x] = 0x00ff0000;
+                screen_buffer[(y * camera->width) + x] = //0x00ff0000;
+                        castReflectionRay(camera, scene, sphereMaterial, sphere_normal, sphere_intersect);
             }
             else if (hit_triangle) {
-                screen_buffer[(y * camera->width) + x] = 0x00ffffff;
+                screen_buffer[(y * camera->width) + x] = //0x00ffffff;
+                        castReflectionRay(camera, scene, triangleMaterial, tri_normal, tri_intersect);
             }
             else {
                 screen_buffer[(y * camera->width) + x] = 0x00000000;
             }
         }
     }
-
 }
 
 int main(int argc, char **argv) {
@@ -288,10 +399,10 @@ int main(int argc, char **argv) {
 
     constexpr s32 width = 1080;
     constexpr s32 height = 720;
-    u32 *screen_buffer = new u32[width * height]();
+    u32 *screenBuffer = new u32[width * height]();
     Window window(width, height);
 
-    Sphere sphere(glm::vec4(0.0f, 0.0f, -2.1f, 1.0f), 1.0f);
+    //Sphere sphere(glm::vec4(0.0f, 0.0f, -2.1f, 1.0f), 1.0f);
     Camera camera(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f),
                 glm::vec3(0.0f, 1.0f, 0.0f), width, height, 1.0f);
 
@@ -300,20 +411,28 @@ int main(int argc, char **argv) {
             glm::vec4(1.0f, 0.0f, -1.5f, 1.0f),
             glm::vec4(0.0f, 1.0f, -1.5f, 1.0f));
 
-    cast_rays(screen_buffer, &camera, {sphere}, {tri});
-    window.update(screen_buffer);
+    Light light({0.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.5f, 0.0f, 0.0f});
+
+//    castRays(screenBuffer, &camera, {{sphere}, {tri}, {light}});
+    castRays(screenBuffer, &camera, {{}, {tri}, {light}});
+    window.update(screenBuffer);
     printf("done\n");
 
     bool running = true;
     while (running) {
+        printf("done\n %f\n", light.position.z);
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT) {
                 running = false;
             }
         }
+        memset(screenBuffer, 0, sizeof(u32) * width * height);
+        light.position.z += 10.0;
+        castRays(screenBuffer, &camera, {{}, {tri}, {light}});
+        window.update(screenBuffer);
     }
 	
-    delete[](screen_buffer);
+    delete[](screenBuffer);
 	return EXIT_SUCCESS;
 }
