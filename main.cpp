@@ -2,12 +2,14 @@
 #include <stdlib.h>
 #include <SDL2/SDL.h>
 #include <vector>
+#include <chrono>
 
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/component_wise.hpp>
+
 
 #include "common.h"
 
@@ -126,6 +128,12 @@ struct Triangle {
         v0(p0), v1(p1), v2(p2) {}
 };
 
+enum class Object {
+    None,
+    Sphere,
+    Triangle
+};
+
 struct Camera {
     glm::vec3 position;
     glm::vec3 lookat;
@@ -180,7 +188,7 @@ inline u32 vec3ToU32(const glm::vec3 &vec) {
  * @param distance - The length of the ray.
  * @return - True if an intersection was found, false otherwise.
  */
-bool intersect_test(const Sphere &sphere, const Ray &ray, 
+bool intersectTest(const Sphere &sphere, const Ray &ray,
         glm::vec4 *intersect, glm::vec4 *normal, f32 *distance) {
     f32 B = 2.0f * glm::compAdd(ray.direction * (ray.origin - sphere.center));
     f32 C = glm::compAdd(glm::pow(ray.origin - sphere.center, glm::vec4(2.0f))) 
@@ -238,7 +246,7 @@ bool intersect_test(const Sphere &sphere, const Ray &ray,
  * @param distance - The length of the ray.
  * @return - True if an intersection was found, false otherwise.
  */
-bool intersect_test(Triangle triangle, Ray ray, glm::vec4 *intersect,
+bool intersectTest(Triangle triangle, Ray ray, glm::vec4 *intersect,
         glm::vec4 *normal, f32 *distance) {
     glm::vec3 e1 = glm::vec3(triangle.v1 - triangle.v0);
     glm::vec3 e2 = glm::vec3(triangle.v2 - triangle.v0);
@@ -276,23 +284,29 @@ bool intersect_test(Triangle triangle, Ray ray, glm::vec4 *intersect,
  * @param distance - The length of the ray.
  * @return - True if an intersection occured, false otherwise.
  */
-template <typename T>
-bool intersectObjects(const std::vector<T> &objects, const Ray &ray,
+Object intersectObjects(const Scene &scene, const Ray &ray,
         glm::vec4 *intersect, glm::vec4 *normal, f32 *distance) {
     f32 nearest = INFINITY;
     f32 curr_distance = INFINITY;
-    for (const auto &object : objects) {
-        if (intersect_test(object, ray, intersect, normal, &curr_distance)) {
+    Object ret = Object::None;
+    for (const auto &sphere: scene.spheres) {
+        if (intersectTest(sphere, ray, intersect, normal, &curr_distance)) {
             if (curr_distance < nearest) {
                 nearest = curr_distance;
+                ret = Object::Sphere;
             }
         }
     }
-    if (curr_distance == INFINITY) {
-        return false;
+    for (const auto &triangle: scene.triangles) {
+        if (intersectTest(triangle, ray, intersect, normal, &curr_distance)) {
+            if (curr_distance < nearest) {
+                nearest = curr_distance;
+                ret = Object::Triangle;
+            }
+        }
     }
     *distance = nearest;
-    return true;
+    return ret;
 }
 
 inline glm::vec3 calculatePhongLighting(const Light &light, const Material &material,
@@ -315,10 +329,11 @@ u32 castReflectionRay(Camera *camera, const Scene &scene, const Material &materi
         auto reflectionvec = glm::normalize(glm::reflect(-surfToLight, normal));
         glm::vec4 junkIntersect{}, junkNormal{};
         f32 distance = 0.0;
-        if (intersectObjects(scene.spheres, Ray(intersection, glm::vec4(light.position, 1.0) - intersection), &junkIntersect,
-                             &junkNormal, &distance) ||
-                intersectObjects(scene.triangles, Ray(intersection + glm::vec4(0.0f, 0.0f, 0.0001f, 1.0f), glm::vec4(light.position, 1.0) - intersection), &junkIntersect,
-                                    &junkNormal, &distance)) {
+        Ray reflectionRay(intersection + glm::vec4(0.0f, 0.0f, 0.0001f, 1.0f),
+                          glm::vec4(light.position, 1.0) - intersection);
+        Object type = intersectObjects(scene, reflectionRay, &junkIntersect,
+                             &junkNormal, &distance);
+        if (type != Object::None) {
             color += light.ambientColor;
         } else { // not in shadow
             color += calculatePhongLighting(light, material, normal, surfToLight, reflectionvec,
@@ -353,41 +368,25 @@ void castRays(u32 *screen_buffer, Camera *camera, const Scene &scene) {
             auto origin = inv_cam * glm::vec4(camera->position, 1.0f);
             Ray ray(glm::normalize(origin), glm::normalize(direction));
 
-            glm::vec4 sphere_intersect(0.0f);
-            glm::vec4 sphere_normal(0.0f);
+            glm::vec4 intersect(0.0f);
+            glm::vec4 normal(0.0f);
 
-            glm::vec4 tri_intersect(0.0f);
-            glm::vec4 tri_normal(0.0f);
+            f32 distance = 0.0f;
 
-            f32 sphere_distance = 0.0f;
-            f32 tri_distance = 0.0f;
+            Object type = intersectObjects(scene, ray, &intersect, &normal, &distance);
 
-            bool hit_sphere = intersectObjects(scene.spheres, ray, &sphere_intersect,
-                    &sphere_normal, &sphere_distance);
-
-            bool hit_triangle = intersectObjects(scene.triangles, ray, &tri_intersect,
-                    &tri_normal, &tri_distance);
-            
-            if (hit_sphere && hit_triangle) {
-                if (sphere_distance < tri_distance) {
-                    screen_buffer[(y * camera->width) + x] = // TODO: need to get the material from something
-                            castReflectionRay(camera, scene, sphereMaterial, sphere_normal, sphere_intersect);
-                }
-                else {
-                    screen_buffer[(y * camera->width) + x] = //0x00ffffff;
-                            castReflectionRay(camera, scene, triangleMaterial, tri_normal, tri_intersect);
-                }
-            }
-            else if (hit_sphere) {
-                screen_buffer[(y * camera->width) + x] = //0x00ff0000;
-                        castReflectionRay(camera, scene, sphereMaterial, sphere_normal, sphere_intersect);
-            }
-            else if (hit_triangle) {
-                screen_buffer[(y * camera->width) + x] = //0x00ffffff;
-                        castReflectionRay(camera, scene, triangleMaterial, tri_normal, tri_intersect);
-            }
-            else {
+            switch (type) {
+            case Object::None:
                 screen_buffer[(y * camera->width) + x] = 0x00000000;
+                break;
+            case Object::Sphere:
+                screen_buffer[(y * camera->width) + x] = // TODO: need to get the material from something
+                        castReflectionRay(camera, scene, triangleMaterial, normal, intersect);
+                break;
+            case Object::Triangle:
+                screen_buffer[(y * camera->width) + x] = //0x00ffffff;
+                        castReflectionRay(camera, scene, triangleMaterial, normal, intersect);
+                break;
             }
         }
     }
@@ -402,7 +401,7 @@ int main(int argc, char **argv) {
     u32 *screenBuffer = new u32[width * height]();
     Window window(width, height);
 
-    //Sphere sphere(glm::vec4(0.0f, 0.0f, -2.1f, 1.0f), 1.0f);
+    Sphere sphere(glm::vec4(0.0f, 0.0f, -1.1f, 1.0f), 1.0f);
     Camera camera(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f),
                 glm::vec3(0.0f, 1.0f, 0.0f), width, height, 1.0f);
 
@@ -414,23 +413,24 @@ int main(int argc, char **argv) {
     Light light({0.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.5f, 0.0f, 0.0f});
 
 //    castRays(screenBuffer, &camera, {{sphere}, {tri}, {light}});
-    castRays(screenBuffer, &camera, {{}, {tri}, {light}});
+
+    auto start = std::chrono::high_resolution_clock::now();
+    castRays(screenBuffer, &camera, {{sphere}, {}, {light}});
+    auto end = std::chrono::high_resolution_clock::now();
+    auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    printf("TIME: %lld\n", diff);
+//    castRays(screenBuffer, &camera, {{}, {tri}, {light}});
     window.update(screenBuffer);
     printf("done\n");
 
     bool running = true;
     while (running) {
-        printf("done\n %f\n", light.position.z);
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT) {
                 running = false;
             }
         }
-        memset(screenBuffer, 0, sizeof(u32) * width * height);
-        light.position.z += 10.0;
-        castRays(screenBuffer, &camera, {{}, {tri}, {light}});
-        window.update(screenBuffer);
     }
 	
     delete[](screenBuffer);
